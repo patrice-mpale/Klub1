@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+void main() {
   runApp(const SalonApp());
 }
 
@@ -43,7 +39,7 @@ class SalonData{
 final GoRouter _router = GoRouter(
   initialLocation: '/',
   routes: [
-    // 1. Écran de bienvenue / Login Part 1
+    // 1. Login 
     GoRoute(
       path: '/',
       builder: (context, state) => const LoginScreen(),
@@ -97,65 +93,31 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _communeController = TextEditingController();
   final TextEditingController _telephoneController = TextEditingController();
   final TextEditingController _avenueController = TextEditingController();
-  
-  bool _isLoading = false;
 
-  // Fonction intelligente : Vérifier ou Créer le salon
-  Future<void> _validerEtEntrer() async {
+
+  // Enregistre les informations du salon en mémoire puis ouvre le tableau de bord
+  void _validerEtEntrer() {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() { _isLoading = true; });
+    SalonData.nomSalon = _nomSalonController.text.trim();
+    SalonData.commune = _communeController.text.trim();
+    SalonData.avenue = _avenueController.text.trim();
+    SalonData.telephone = _telephoneController.text.trim();
+    SalonData.salonId = '${SalonData.nomSalon}_${SalonData.telephone}';
 
-    try {
-      final nomSalon = _nomSalonController.text.trim();
-      final telephone = _telephoneController.text.trim();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Connexion au tableau de bord...')),
+    );
+    context.go('/dashboard');
+  }
 
-      // 1. On cherche si un salon avec ce nom et ce téléphone existe déjà
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('salons')
-          .where('nomSalon', isEqualTo: nomSalon)
-          .where('telephoneProprio', isEqualTo: telephone)
-          .get();
-
-      String salonId;
-
-      if (querySnapshot.docs.isNotEmpty) {
-        // LE SALON EXISTE DÉJÀ : On récupère son ID existant
-        salonId = querySnapshot.docs.first.id;
-        
-        // Petit message pour informer l'utilisateur gentiment
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Salon reconnu ! Connexion au tableau de bord...')),
-        );
-      } else {
-        // LE SALON N'EXISTE PAS : On le crée dans Firestore
-        final docRef = await FirebaseFirestore.instance.collection('salons').add({
-          'nomSalon': nomSalon,
-          'avenue': _avenueController.text.trim(),
-          'commune': _communeController.text.trim(),
-          'telephoneProprio': telephone,
-          'compteurClientsActuel': 0,
-          'dateCreation': FieldValue.serverTimestamp(),
-        });
-        
-        salonId = docRef.id;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nouveau salon créé avec succès !')),
-        );
-      }
-
-      // 2. Navigation vers le tableau des coiffeurs en passant le salonId
-      SalonData.salonId = salonId;
-      context.go('/dashboard');
-
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur de connexion : $e')),
-      );
-    } finally {
-      setState(() { _isLoading = false; });
-    }
+  @override
+  void dispose() {
+    _nomSalonController.dispose();
+    _communeController.dispose();
+    _telephoneController.dispose();
+    _avenueController.dispose();
+    super.dispose();
   }
 
   @override
@@ -199,7 +161,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   labelText: 'Adresse ou Commune (ex: Gombe)',
                   border: OutlineInputBorder(),
                 ),
-                validator: (value) => value!.isEmpty ? 'Entrez l\'adresse' : null,
+                validator: (value) => value!.isEmpty ? 'Entrez la commune' : null,
               ),
               const SizedBox(height: 15),           
               // Avenue
@@ -226,15 +188,13 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 30),
 
               // Bouton unique intelligent
-              _isLoading
-                  ? const CircularProgressIndicator()
-                  : ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(50),
-                      ),
-                      onPressed: _validerEtEntrer,
-                      child: const Text('Accéder au Salon', style: TextStyle(fontSize: 18)),
-                    ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                ),
+                onPressed: _validerEtEntrer,
+                child: const Text('Accéder au Salon', style: TextStyle(fontSize: 18)),
+              ),
           ],
           ),
         ),
@@ -341,7 +301,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const Text('Choisir le coiffeur :', style: TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
                   DropdownButtonFormField<String>(
-                    value: coiffeurSelectionne,
+                    initialValue: coiffeurSelectionne,
                     items: SalonData.coiffeurs.map((c) {
                       return DropdownMenuItem<String>(
                         value: c['nom'] as String,
@@ -587,7 +547,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
+                            color: Colors.grey.withValues(alpha: 0.1),
                             spreadRadius: 1,
                             blurRadius: 3,
                           ),
@@ -622,7 +582,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               Icon(coiffeur['icone'], color: Colors.red, size: 28),
                               const SizedBox(width: 8),
                               Text(
-                                '${(coiffeur['clients'] as int).toString().padLeft(2, '0')}',
+                                (coiffeur['clients'] as int).toString().padLeft(2, '0'),
                                 style: const TextStyle(
                                   color: Colors.orange,
                                   fontSize: 38,
